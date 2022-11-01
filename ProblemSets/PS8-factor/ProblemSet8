@@ -1,0 +1,214 @@
+using Optim
+using HTTP
+using GLM
+using LinearAlgebra
+using Random
+using Statistics
+using DataFrames
+using DataFramesMeta
+using CSV
+using MultivariateStats
+
+#Principal Components Analysis (PCA) and factor analysis 
+
+#::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+#Q1: load the dataset nlsy.csv and estimate the regression model
+#::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+url = "https://raw.githubusercontent.com/Alina-Elena-Munteanu/fall-2022/master/ProblemSets/PS8-factor/nlsy.csv"
+df = CSV.read(HTTP.get(url).body, DataFrame)
+X=[df.black df.hispanic df.female df.schoolt df.gradHS df.grad4yr]
+y= df.logwage
+
+function ols(beta, X, y)
+    ssr = (y.-X*beta)'*(y.-X*beta)
+    return ssr
+end
+
+beta_hat_ols = optimize(beta -> ols(beta, X, y), rand(size(X,2)), LBFGS(), Optim.Options(g_tol=1e-6, iterations=100_000, show_trace=true))
+println(beta_hat_ols.minimizer)
+
+bols = inv(X'*X)*X'*y
+println(bols)
+bols_lm = lm(@formula(logwage ~ black + hispanic + female + schoolt + gradHS + grad4yr), df)
+println(bols_lm)
+
+#::::::::::::::::::::::::::::::::::::::::::::::::::::::
+#Q2: Corelation between asvab variables.
+#::::::::::::::::::::::::::::::::::::::::::::::::::::::
+df1 = select(df, Not([:id, :black, :hispanic, :female, :uniqueTime, :grad4yr, :gradHS, :schoolt, :logwage]))
+cor(Matrix(df1))
+
+#::::::::::::::::::::::::::::::::::::::::::::::::::::::
+#Q3: Estimate the same regression model as above but with the six asvab variables contained
+#::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+url = "https://raw.githubusercontent.com/Alina-Elena-Munteanu/fall-2022/master/ProblemSets/PS8-factor/nlsy.csv"
+df2 = CSV.read(HTTP.get(url).body, DataFrame)
+X=[df2.black df2.hispanic df2.female df2.schoolt df2.gradHS df2.grad4yr df2.asvabAR df2.asvabCS df2.asvabMK df2.asvabNO df2.asvabPC df2.asvabWK]
+y= df2.logwage
+
+function ols2(beta, X, y)
+    ssr = (y.-X*beta)'*(y.-X*beta)
+    return ssr
+end
+
+beta_hat_ols2 = optimize(beta -> ols2(beta, X, y), rand(size(X,2)), LBFGS(), Optim.Options(g_tol=1e-6, iterations=100_000, show_trace=true))
+println(beta_hat_ols2.minimizer)
+
+bols = inv(X'*X)*X'*y
+println(bols)
+bols_lm2 = lm(@formula(logwage ~ black + hispanic + female + schoolt + gradHS + grad4yr + asvabAR + asvabCS + asvabMK + asvabNO + asvabPC + asvabWK), df)
+println(bols_lm2)
+
+#Answer: yes, I do believe that the addition of the 6 asvab variables is problematic because they are highly correlated.
+
+#::::::::::::::::::::::::::::::::::::::::::::::::::::::
+#Q4: Include the first principle component of this set as one additional regressor in the model from question 1. 
+#::::::::::::::::::::::::::::::::::::::::::::::::::::::
+asvabMat = convert(Array, df1)
+M = fit(PCA, asvabMat'; maxoutdim=1) #first principle component 
+asvabPCA = MultivariateStats.transform(M, asvabMat')' #get the first principle component returned as data 
+df.asvabPCA = asvabPCA #added asvabPCA 
+
+X=[df.black df.hispanic df.female df.schoolt df.gradHS df.grad4yr df.asvabPCA]
+y= df.logwage
+
+function ols3(beta, X, y)
+    ssr = (y.-X*beta)'*(y.-X*beta)
+    return ssr
+end
+
+beta_hat_ols3 = optimize(beta -> ols3(beta, X, y), rand(size(X,2)), LBFGS(), Optim.Options(g_tol=1e-6, iterations=100_000, show_trace=true))
+println(beta_hat_ols3.minimizer)
+
+bols = inv(X'*X)*X'*y
+println(bols)
+bols_lm3 = lm(@formula(logwage ~ black + hispanic + female + schoolt + gradHS + grad4yr + asvabPCA), df)
+println(bols_lm3)
+
+#::::::::::::::::::::::::::::::::::::::::::::::::::::::
+#Q5: Repeat question 4 but use factor analysis instead. 
+#::::::::::::::::::::::::::::::::::::::::::::::::::::::
+asvabMat1 = convert(Array, df1)
+F = fit(FactorAnalysis, asvabMat1; maxoutdim=1)
+asvabFA = MultivariateStats.transform(F, asvabMat1')' #get the first principle component returned as data 
+df.asvabFA = asvabFA
+
+X=[df.black df.hispanic df.female df.schoolt df.gradHS df.grad4yr df.asvabFA]
+y= df.logwage
+
+function ols4(beta, X, y)
+    ssr = (y.-X*beta)'*(y.-X*beta)
+    return ssr
+end
+
+beta_hat_ols4 = optimize(beta -> ols4(beta, X, y), rand(size(X,2)), LBFGS(), Optim.Options(g_tol=1e-6, iterations=100_000, show_trace=true))
+println(beta_hat_ols4.minimizer)
+
+bols = inv(X'*X)*X'*y
+println(bols)
+bols_lm4 = lm(@formula(logwage ~ black + hispanic + female + schoolt + gradHS + grad4yr + asvabFA), df)
+println(bols_lm4)
+
+#::::::::::::::::::::::::::::::::::::::::::::::::::::::
+#Q6: Estimate the full measurement system using either maximum likelihood or simulated method of moments.  
+#::::::::::::::::::::::::::::::::::::::::::::::::::::::
+include("lgwt.jl")
+
+d = Normal(0,1)
+
+ξ = rand(d,2438)
+
+asvab = df2.asvabAR .+ df2.asvabCS .+ df2.asvabMK .+ df2.asvabNO .+ df2.asvabPC .+ df2.asvabWK
+
+df.asvab = asvab
+
+df.xi = ξ
+
+y = df.asvab 
+
+X = [df.black df.hispanic df.female df.xi]
+
+function ols5(beta, X, y)
+    ssr = (y.-X*beta)'*(y.-X*beta)
+    return ssr
+end
+
+beta_hat_ols5 = optimize(beta -> ols5(beta, X, y), rand(size(X,2)), LBFGS(), Optim.Options(g_tol=1e-6, iterations=100_000, show_trace=true))
+println(beta_hat_ols5.minimizer)
+
+bols = inv(X'*X)*X'*y
+println(bols)
+bols_lm5 = lm(@formula(asvab ~ black + hispanic + female + xi), df)
+println(bols_lm5)
+
+y = df.logwage
+X = [df.black df.hispanic df.female df.schoolt df.gradHS df.grad4yr df.xi]
+
+function ols6(beta, X, y)
+    ssr = (y.-X*beta)'*(y.-X*beta)
+    return ssr
+end
+
+beta_hat_ols6 = optimize(beta -> ols6(beta, X, y), rand(size(X,2)), LBFGS(), Optim.Options(g_tol=1e-6, iterations=100_000, show_trace=true))
+println(beta_hat_ols6.minimizer)
+
+bols = inv(X'*X)*X'*y
+println(bols)
+bols_lm6 = lm(@formula(logwage ~ black + hispanic + female + schoolt + gradHS + grad4yr + xi), df)
+println(bols_lm5)
+
+M = Vector(asvab)
+y = df.logwage
+function logit(alpha, X, y)
+
+    P = exp.(X*alpha)./(1 .+ exp.(X*alpha))
+
+    loglike = -sum( (y.==1).*log.(P) .+ (y.==0).*log.(1 .- P) )
+
+    return loglike
+end
+alpha_hat_optim = optimize(a -> logit(a, X, y), rand(size(X,2)), LBFGS(), Optim.Options(g_tol=1e-6, iterations=100_000, show_trace=true))
+println(alpha_hat_optim.minimizer)
+
+nodes, weights = lgwt(d, F, ξ)
+sum(weights.*pdf.(d,nodes))
+sum(weights.*nodes.*pdf.(d,nodes))
+ 
+function mixlogit_quad_with_Z(theta, X, Z, y, R)
+        
+    alpha = theta[1:end-2]
+    gamma = theta[end-1]
+    sigma = exp(theta[end])
+    K = size(X,2)
+    J = length(unique(y))
+    N = length(y)
+    bigY = zeros(N,J)
+    for j=1:J
+        bigY[:,j] = y.==j
+    end
+    bigAlpha = [reshape(alpha,K,J-1) zeros(K)]
+    
+    T = promote_type(eltype(X),eltype(theta))
+    function like_int(T,N,J,X,Z,bigAlpha,gamma,sigma,R)
+        nodes, weights = lgwt(R,gamma-4*sigma,gamma+4*sigma)
+        out = zeros(T,N)
+        for r=1:R
+            num   = zeros(T,N,J)
+            dem   = zeros(T,N)
+            P     = zeros(T,N,J)
+            for j=1:J
+                num[:,j] = exp.(X*bigAlpha[:,j] .+ (Z[:,j] .- Z[:,J])*nodes[r])
+                dem .+= num[:,j]
+            end
+            P = num./repeat(dem,1,J)
+            out .+= vec( weights[r]*( prod(P.^bigY; dims=2) )*pdf(Normal(gamma,sigma),nodes[r]) ) # why do we have to use vec here? because vectors in Julia are "flat" and the vec operator flattens a one-dimensional array.
+        end
+        return out
+    end
+    
+    intlike = like_int(T,N,J,X,Z,bigAlpha,gamma,sigma,R)
+    loglike = -sum(log.(intlike))
+    return loglike
+end
